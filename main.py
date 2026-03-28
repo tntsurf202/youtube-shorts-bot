@@ -79,7 +79,7 @@ def generate_script(niche: dict) -> dict:
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        f"gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
     )
     prompt = f"""You are a world-class YouTube Shorts scriptwriter. Your videos regularly hit 1M+ views.
 
