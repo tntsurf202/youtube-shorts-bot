@@ -256,23 +256,23 @@ def assemble_short(video_url: str, audio_path: Path, title: str, script: str = "
             # Black outline effect (draw text 4 times offset, then white on top)
             for dx, dy in [(-3,0),(3,0),(0,-3),(0,3)]:
                 filters.append(
-                    f"drawtext=text='{safe}':"
-                    f"fontsize=52:"
-                    f"fontcolor=black:"
-                    f"x=(w-text_w)/2+{dx}:"
-                    f"y=(h*0.72)+{dy}:"
-                    f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-                    f"enable='between(t,{start:.2f},{end:.2f})'"
-                )
+                f"drawtext=text='{safe}':"
+                f"fontsize=52:"
+                f"fontcolor=black:"
+                f"x=(w-text_w)/2+{dx}:"
+                f"y=h*0.72+{dy}:"
+                f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+                f"enable='gte(t,{start:.3f})*lte(t,{end:.3f})'"
+            )
             # White text on top
             filters.append(
                 f"drawtext=text='{safe}':"
                 f"fontsize=52:"
                 f"fontcolor=white:"
                 f"x=(w-text_w)/2:"
-                f"y=(h*0.72):"
+                f"y=h*0.72:"
                 f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-                f"enable='between(t,{start:.2f},{end:.2f})'"
+                f"enable='gte(t,{start:.3f})*lte(t,{end:.3f})'"
             )
 
         return ",".join(filters)
@@ -286,12 +286,12 @@ def assemble_short(video_url: str, audio_path: Path, title: str, script: str = "
                   .replace("[",  "\\[")
                   .replace("]",  "\\]"))
 
-    title_filter = (
+title_filter = (
         f"drawtext=text='{safe_title}':"
         f"fontsize=44:fontcolor=white:x=(w-text_w)/2:y=90:"
         f"shadowcolor=black@0.8:shadowx=2:shadowy=2:"
         f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
-        f"enable='between(t,0,3.5)'"
+        f"enable='gte(t,0)*lte(t,3.500)'"
     )
 
     # ── Combine all filters ────────────────────────────────────────────────────
