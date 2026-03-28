@@ -82,15 +82,16 @@ def generate_script(niche: dict) -> dict:
 Write a 55-second script about: {niche['topic']}
 
 RULES (follow exactly):
-1. First sentence MUST be a shocking hook — use one of: "Did you know", "Most people never know", "Scientists just discovered"
-2. Include exactly 5 specific, surprising facts — no filler, no vague statements
-3. Final sentence MUST be exactly: "Follow for more!"
-4. Word count: 110-130 words (critical — too many words = cuts off)
-5. Write ONLY the spoken words — no labels, headers, or stage directions
+1. First sentence MUST be a shocking hook — use one of: Did you know, Most people never know, Scientists just discovered
+2. Include exactly 5 specific surprising facts — no filler
+3. Final sentence MUST be exactly: Follow for more!
+4. Word count: 110-130 words
+5. Write ONLY the spoken words — no labels headers or stage directions
+6. NEVER use apostrophes quote marks or special characters in the script or title
+7. NEVER use contractions like dont cant wont isnt — write them out as do not can not will not is not
 
-Return ONLY a raw JSON object with no markdown, no code blocks, no extra text:
-{{"title": "Catchy title under 60 chars, no hashtags", "script": "Full 110-130 word narration", "description": "100-150 word YouTube description packed with keywords"}}"""
-
+Return ONLY a raw JSON object with no markdown no code blocks no extra text:
+{{"title": "Catchy title under 60 chars no hashtags no quotes", "script": "Full 110-130 word narration with no apostrophes or quotes", "description": "100-150 word YouTube description packed with keywords no special characters"}}"""
     groq_api_key = os.environ["GROQ_API_KEY"]
 
     for attempt in range(3):
