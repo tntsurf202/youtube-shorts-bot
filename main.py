@@ -179,37 +179,17 @@ def fetch_pexels_video(query: str) -> tuple:
 # STEP 3 ── Generate voiceover with Microsoft Edge TTS (free, no key needed)
 # ══════════════════════════════════════════════════════════════════════════════
 def generate_voiceover(script: str) -> Path:
-    log.info("[3/5] Generating voiceover  →  Edge TTS (en-US-AriaNeural)")
+    log.info("[3/5] Generating voiceover  →  gTTS")
+    from gtts import gTTS
 
-    audio_path  = TMP / "voiceover.mp3"
-    script_path = TMP / "script.txt"
+    audio_path = TMP / "voiceover.mp3"
+    clean = script.replace("\n", " ").strip()
 
-    clean = script.replace('"', "'").replace("\n", " ").strip()
-    script_path.write_text(clean, encoding="utf-8")
+    tts = gTTS(text=clean, lang="en", slow=False)
+    tts.save(str(audio_path))
 
-    result = subprocess.run(
-        [sys.executable, "-m", "edge_tts",
-         "--voice", "en-US-AriaNeural",
-         "--rate", "+8%",
-         "--file", str(script_path),
-         "--write-media", str(audio_path)],
-        capture_output=True, text=True, timeout=90,
-    )
-
-    if result.returncode != 0 or not audio_path.exists():
-        log.warning(f"  ⚠ edge-tts error: {result.stderr[:300]}")
-        # Fallback: pass text directly (avoids file path issues)
-        subprocess.run(
-            [sys.executable, "-m", "edge_tts",
-             "--voice", "en-US-AriaNeural",
-             "--rate", "+8%",
-             "--text", clean[:500],
-             "--write-media", str(audio_path)],
-            capture_output=True, timeout=90,
-        )
-
-    if not audio_path.exists():
-        raise RuntimeError("Edge TTS failed — no audio file produced")
+    if not audio_path.exists() or audio_path.stat().st_size == 0:
+        raise RuntimeError("gTTS failed — audio file empty or missing")
 
     size_kb = audio_path.stat().st_size // 1024
     log.info(f"  ✓ Audio: {size_kb} KB")
