@@ -474,7 +474,7 @@ def main():
         script_data          = generate_script(niche)
         video_url, _         = fetch_pexels_video(niche["pexels_query"])
         audio_path           = generate_voiceover(script_data["script"])
-        final_video          = assemble_short(video_url, audio_path, script_data["title"])
+        final_video          = assemble_short(video_url, audio_path, script_data["title"], script_data["script"])
         video_id, yt_url     = upload_to_youtube(
             final_video,
             script_data["title"],
