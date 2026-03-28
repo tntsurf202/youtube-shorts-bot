@@ -200,13 +200,12 @@ def generate_voiceover(script: str) -> Path:
 # STEP 4 ── Download stock video + assemble Short with FFmpeg
 #           Output: 1080×1920, 30fps, H.264 + AAC — perfect for YouTube Shorts
 # ══════════════════════════════════════════════════════════════════════════════
-def assemble_short(video_url: str, audio_path: Path, title: str) -> Path:
-    log.info("[4/5] Assembling Short  →  downloading video + FFmpeg")
+def assemble_short(video_url: str, audio_path: Path, title: str, script: str = "") -> Path:
+    log.info("[4/5] Assembling Short  →  downloading video + FFmpeg + subtitles")
 
     raw_video = TMP / "raw_video.mp4"
     output    = TMP / "final_short.mp4"
 
-    # Download stock video
     log.info("  Downloading stock video...")
     with requests.get(video_url, stream=True, timeout=120) as r:
         r.raise_for_status()
@@ -215,7 +214,6 @@ def assemble_short(video_url: str, audio_path: Path, title: str) -> Path:
                 f.write(chunk)
     log.info(f"  ✓ Downloaded: {raw_video.stat().st_size // (1024*1024)} MB")
 
-    # Get audio duration for trimming the video correctly
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
          "-of", "csv=p=0", str(audio_path)],
@@ -227,7 +225,59 @@ def assemble_short(video_url: str, audio_path: Path, title: str) -> Path:
         duration = 57.0
     log.info(f"  Target duration: {duration:.1f}s")
 
-    # Escape title for FFmpeg drawtext filter
+    # ── Build subtitle chunks (3-4 words at a time, timed evenly) ─────────────
+    def make_subtitle_filter(script_text, total_duration):
+        words = script_text.strip().split()
+        chunk_size = 4
+        chunks = []
+        for i in range(0, len(words), chunk_size):
+            chunks.append(" ".join(words[i:i+chunk_size]))
+
+        if not chunks:
+            return ""
+
+        time_per_chunk = total_duration / len(chunks)
+        filters = []
+
+        for i, chunk in enumerate(chunks):
+            start = i * time_per_chunk
+            end   = start + time_per_chunk
+
+            # Escape special chars for FFmpeg drawtext
+            safe = (chunk
+                    .replace("\\", "\\\\")
+                    .replace("'",  "\\'")
+                    .replace(":",  "\\:")
+                    .replace(",",  "\\,")
+                    .replace("[",  "\\[")
+                    .replace("]",  "\\]")
+                    .replace("%",  "\\%"))
+
+            # Black outline effect (draw text 4 times offset, then white on top)
+            for dx, dy in [(-3,0),(3,0),(0,-3),(0,3)]:
+                filters.append(
+                    f"drawtext=text='{safe}':"
+                    f"fontsize=52:"
+                    f"fontcolor=black:"
+                    f"x=(w-text_w)/2+{dx}:"
+                    f"y=(h*0.72)+{dy}:"
+                    f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+                    f"enable='between(t,{start:.2f},{end:.2f})'"
+                )
+            # White text on top
+            filters.append(
+                f"drawtext=text='{safe}':"
+                f"fontsize=52:"
+                f"fontcolor=white:"
+                f"x=(w-text_w)/2:"
+                f"y=(h*0.72):"
+                f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+                f"enable='between(t,{start:.2f},{end:.2f})'"
+            )
+
+        return ",".join(filters)
+
+    # ── Build title overlay for first 3.5s ────────────────────────────────────
     safe_title = (title[:48]
                   .replace("\\", "\\\\")
                   .replace("'",  "\\'")
@@ -236,25 +286,31 @@ def assemble_short(video_url: str, audio_path: Path, title: str) -> Path:
                   .replace("[",  "\\[")
                   .replace("]",  "\\]"))
 
-    # FFmpeg filter chain:
-    #   scale → crop to 1080×1920 (portrait / Shorts format)
-    #   fade in 0.4s, fade out 0.8s
-    #   white title text with black shadow for first 3.5s
-    vf = (
+    title_filter = (
+        f"drawtext=text='{safe_title}':"
+        f"fontsize=44:fontcolor=white:x=(w-text_w)/2:y=90:"
+        f"shadowcolor=black@0.8:shadowx=2:shadowy=2:"
+        f"fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+        f"enable='between(t,0,3.5)'"
+    )
+
+    # ── Combine all filters ────────────────────────────────────────────────────
+    subtitle_filter = make_subtitle_filter(script, duration) if script else ""
+
+    base_vf = (
         f"scale=1080:1920:force_original_aspect_ratio=increase,"
         f"crop=1080:1920,"
         f"fade=t=in:st=0:d=0.4,"
         f"fade=t=out:st={duration - 0.9:.2f}:d=0.8,"
-        f"drawtext=text='{safe_title}':"
-        f"fontsize=44:fontcolor=white:x=(w-text_w)/2:y=90:"
-        f"shadowcolor=black@0.8:shadowx=2:shadowy=2:"
-        f"enable='between(t,0,3.5)'"
+        f"{title_filter}"
     )
 
-    log.info("  Running FFmpeg...")
+    vf = base_vf + ("," + subtitle_filter if subtitle_filter else "")
+
+    log.info("  Running FFmpeg with subtitles...")
     result = subprocess.run(
         ["ffmpeg", "-y",
-         "-stream_loop", "-1",     # loop stock video if shorter than audio
+         "-stream_loop", "-1",
          "-i", str(raw_video),
          "-i", str(audio_path),
          "-vf", vf,
@@ -273,7 +329,7 @@ def assemble_short(video_url: str, audio_path: Path, title: str) -> Path:
         raise RuntimeError("FFmpeg assembly failed")
 
     size_mb = output.stat().st_size / (1024 * 1024)
-    log.info(f"  ✓ Short assembled: {size_mb:.1f} MB, {duration:.1f}s")
+    log.info(f"  ✓ Short assembled with subtitles: {size_mb:.1f} MB, {duration:.1f}s")
     return output
 
 
