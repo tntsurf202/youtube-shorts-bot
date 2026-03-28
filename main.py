@@ -79,7 +79,7 @@ def generate_script(niche: dict) -> dict:
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+        f"gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
     )
     prompt = f"""You are a world-class YouTube Shorts scriptwriter. Your videos regularly hit 1M+ views.
 
@@ -95,19 +95,25 @@ RULES (follow exactly):
 Return ONLY a raw JSON object with no markdown, no code blocks, no extra text:
 {{"title": "Catchy title under 60 chars, no hashtags", "script": "Full 110-130 word narration", "description": "100-150 word YouTube description packed with keywords"}}"""
 
-    resp = requests.post(
-        url,
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {
-                "responseMimeType": "application/json",
-                "temperature": 0.85,
-                "maxOutputTokens": 1024,
+    for attempt in range(3):
+        resp = requests.post(
+            url,
+            json={
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {
+                    "responseMimeType": "application/json",
+                    "temperature": 0.85,
+                    "maxOutputTokens": 1024,
+                },
             },
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
+            timeout=30,
+        )
+        if resp.status_code == 429:
+            log.info(f"  Rate limited, waiting 30s (attempt {attempt+1}/3)...")
+            time.sleep(30)
+            continue
+        resp.raise_for_status()
+        break
 
     raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
     # Strip any accidental markdown fences
