@@ -109,10 +109,16 @@ Return ONLY a raw JSON object with no markdown, no code blocks, no extra text:
             timeout=30,
         )
         if resp.status_code == 429:
-            log.info(f"  Rate limited, waiting 30s (attempt {attempt+1}/3)...")
-            time.sleep(30)
+            wait = 60 * (attempt + 1)
+            log.info(f"  Rate limited, waiting {wait}s (attempt {attempt+1}/3)...")
+            time.sleep(wait)
             continue
-        resp.raise_for_status()
+        if not resp.ok:
+            log.error(f"  API error {resp.status_code}: {resp.text}")
+            resp.raise_for_status()
+        if "candidates" not in resp.json():
+            log.error(f"  Unexpected response: {resp.text}")
+            raise RuntimeError(f"Gemini returned no candidates: {resp.text}")
         break
 
     raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
