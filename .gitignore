@@ -1,0 +1,6 @@
+# Never commit these
+youtube_refresh_token.txt
+*.json
+.env
+__pycache__/
+*.pyc
