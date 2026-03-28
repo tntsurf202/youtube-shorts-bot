@@ -72,15 +72,11 @@ NICHES = [
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# STEP 1 ── Generate script with Gemini 2.0 Flash (free: 250 req/day)
+# STEP 1 ── Generate script with Groq (free: 250 req/day)
 # ══════════════════════════════════════════════════════════════════════════════
 def generate_script(niche: dict) -> dict:
     log.info(f"[1/5] Generating script  →  {niche['topic']}")
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash-lite:generateContent?key={GEMINI_API_KEY}"
-    )
     prompt = f"""You are a world-class YouTube Shorts scriptwriter. Your videos regularly hit 1M+ views.
 
 Write a 55-second script about: {niche['topic']}
@@ -89,40 +85,41 @@ RULES (follow exactly):
 1. First sentence MUST be a shocking hook — use one of: "Did you know", "Most people never know", "Scientists just discovered"
 2. Include exactly 5 specific, surprising facts — no filler, no vague statements
 3. Final sentence MUST be exactly: "Follow for more!"
-4. Word count: 110–130 words (critical — too many words = cuts off)
+4. Word count: 110-130 words (critical — too many words = cuts off)
 5. Write ONLY the spoken words — no labels, headers, or stage directions
 
 Return ONLY a raw JSON object with no markdown, no code blocks, no extra text:
 {{"title": "Catchy title under 60 chars, no hashtags", "script": "Full 110-130 word narration", "description": "100-150 word YouTube description packed with keywords"}}"""
 
+    groq_api_key = os.environ["GROQ_API_KEY"]
+
     for attempt in range(3):
         resp = requests.post(
-            url,
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {groq_api_key}",
+                "Content-Type": "application/json",
+            },
             json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "responseMimeType": "application/json",
-                    "temperature": 0.85,
-                    "maxOutputTokens": 1024,
-                },
+                "model": "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.85,
+                "max_tokens": 1024,
+                "response_format": {"type": "json_object"},
             },
             timeout=30,
         )
         if resp.status_code == 429:
-            wait = 60 * (attempt + 1)
+            wait = 30 * (attempt + 1)
             log.info(f"  Rate limited, waiting {wait}s (attempt {attempt+1}/3)...")
             time.sleep(wait)
             continue
         if not resp.ok:
             log.error(f"  API error {resp.status_code}: {resp.text}")
             resp.raise_for_status()
-        if "candidates" not in resp.json():
-            log.error(f"  Unexpected response: {resp.text}")
-            raise RuntimeError(f"Gemini returned no candidates: {resp.text}")
         break
 
-    raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-    # Strip any accidental markdown fences
+    raw = resp.json()["choices"][0]["message"]["content"]
     raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
     data = json.loads(raw)
 
