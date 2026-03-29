@@ -299,7 +299,6 @@ def assemble_short(video_urls: list, audio_path: Path, title: str, script: str =
 
     output = TMP / "final_short.mp4"
 
-    # Download all video clips
     clip_paths = []
     for i, url in enumerate(video_urls):
         clip_path = TMP / f"clip_{i}.mp4"
@@ -319,15 +318,13 @@ def assemble_short(video_urls: list, audio_path: Path, title: str, script: str =
 
     log.info(f"  ✓ Downloaded {len(clip_paths)} clips")
 
-    # Write concat list for FFmpeg
     concat_file = TMP / "concat.txt"
     with open(concat_file, "w") as f:
         for p in clip_paths:
             f.write(f"file '{p}'\n")
 
-    # Merge clips into one raw video
     raw_video = TMP / "raw_video.mp4"
-concat_result = subprocess.run(
+    concat_result = subprocess.run(
         ["ffmpeg", "-y",
          "-f", "concat",
          "-safe", "0",
@@ -424,8 +421,6 @@ concat_result = subprocess.run(
 
     vf = base_vf + ("," + subtitle_filter if subtitle_filter else "")
 
-    log.info("  Running FFmpeg with subtitles...")
-    # Build FFmpeg command — mix voiceover + background music
     ffmpeg_cmd = [
         "ffmpeg", "-y",
         "-stream_loop", "-1", "-i", str(raw_video),
@@ -434,8 +429,6 @@ concat_result = subprocess.run(
 
     if music_path and music_path.exists():
         ffmpeg_cmd += ["-stream_loop", "-1", "-i", str(music_path)]
-        # 3 inputs: video, voiceover, music
-        # Mix voiceover at full volume, music at 15% volume
         audio_filter = "[1:a]volume=1.0[voice];[2:a]volume=0.15[music];[voice][music]amix=inputs=2:duration=first[aout]"
         ffmpeg_cmd += [
             "-vf", vf,
@@ -444,7 +437,6 @@ concat_result = subprocess.run(
             "-map", "[aout]",
         ]
     else:
-        # No music — just voiceover
         ffmpeg_cmd += [
             "-vf", vf,
             "-map", "0:v",
@@ -461,6 +453,7 @@ concat_result = subprocess.run(
         str(output),
     ]
 
+    log.info("  Running FFmpeg with subtitles and music...")
     result = subprocess.run(
         ffmpeg_cmd,
         capture_output=True, text=True, timeout=300,
@@ -471,7 +464,7 @@ concat_result = subprocess.run(
         raise RuntimeError("FFmpeg assembly failed")
 
     size_mb = output.stat().st_size / (1024 * 1024)
-    log.info(f"  ✓ Short assembled with subtitles: {size_mb:.1f} MB, {duration:.1f}s")
+    log.info(f"  ✓ Short assembled: {size_mb:.1f} MB, {duration:.1f}s")
     return output
 
 
