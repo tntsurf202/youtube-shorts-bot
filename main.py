@@ -327,14 +327,12 @@ def assemble_short(video_urls: list, audio_path: Path, title: str, script: str =
 
     # Merge clips into one raw video
     raw_video = TMP / "raw_video.mp4"
-    concat_result = subprocess.run(
+concat_result = subprocess.run(
         ["ffmpeg", "-y",
          "-f", "concat",
          "-safe", "0",
          "-i", str(concat_file),
-         "-c:v", "libx264",
-         "-preset", "fast",
-         "-crf", "23",
+         "-c", "copy",
          "-an",
          str(raw_video)],
         capture_output=True, text=True, timeout=120,
