@@ -132,48 +132,50 @@ Return ONLY a raw JSON object with no markdown no code blocks no extra text:
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 ── Fetch portrait stock video from Pexels (free, no watermark)
 # ══════════════════════════════════════════════════════════════════════════════
-def fetch_pexels_video(query: str) -> tuple:
-    log.info(f"[2/5] Fetching stock video  →  '{query}'")
-
+def fetch_pexels_videos(query: str, count: int = 4) -> list:
+    log.info(f"[2/5] Fetching multiple stock videos  →  '{query}'")
     headers = {"Authorization": PEXELS_API_KEY}
     fallbacks = [query, "nature aerial landscape", "abstract motion background"]
 
+    videos_found = []
     for q in fallbacks:
         resp = requests.get(
             "https://api.pexels.com/videos/search",
             headers=headers,
-            params={"query": q, "per_page": 10, "orientation": "portrait",
-                    "min_duration": 15, "max_duration": 90},
+            params={"query": q, "per_page": 15, "orientation": "portrait",
+                    "min_duration": 5, "max_duration": 30},
             timeout=15,
         )
         resp.raise_for_status()
         videos = resp.json().get("videos", [])
-        if videos:
+        if len(videos) >= count:
+            videos_found = videos
             log.info(f"  ✓ Found {len(videos)} videos for '{q}'")
             break
 
-    if not videos:
+    if not videos_found:
         raise RuntimeError("No Pexels videos found")
 
-    # Pick randomly from top 5 so we get variety across days
-    video = random.choice(videos[:5])
-
-    # Prefer HD portrait file
-    video_url = None
-    for quality in ["hd", "sd", ""]:
-        for f in video["video_files"]:
-            portrait = f.get("width", 1) < f.get("height", 1)
-            right_q  = not quality or f.get("quality") == quality
-            if portrait and right_q and f.get("link"):
-                video_url = f["link"]
+    # Pick random unique videos
+    selected = random.sample(videos_found[:12], min(count, len(videos_found[:12])))
+    urls = []
+    for video in selected:
+        video_url = None
+        for quality in ["hd", "sd", ""]:
+            for f in video["video_files"]:
+                portrait = f.get("width", 1) < f.get("height", 1)
+                right_q  = not quality or f.get("quality") == quality
+                if portrait and right_q and f.get("link"):
+                    video_url = f["link"]
+                    break
+            if video_url:
                 break
-        if video_url:
-            break
-    if not video_url:
-        video_url = video["video_files"][0]["link"]
+        if not video_url:
+            video_url = video["video_files"][0]["link"]
+        urls.append(video_url)
 
-    log.info(f"  ✓ Video selected (duration: {video['duration']}s)")
-    return video_url, video["duration"]
+    log.info(f"  ✓ Selected {len(urls)} different videos")
+    return urls
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -201,19 +203,56 @@ def generate_voiceover(script: str) -> Path:
 # STEP 4 ── Download stock video + assemble Short with FFmpeg
 #           Output: 1080×1920, 30fps, H.264 + AAC — perfect for YouTube Shorts
 # ══════════════════════════════════════════════════════════════════════════════
-def assemble_short(video_url: str, audio_path: Path, title: str, script: str = "") -> Path:
+def assemble_short(video_urls: list, audio_path: Path, title: str, script: str = "") -> Path:
     log.info("[4/5] Assembling Short  →  downloading video + FFmpeg + subtitles")
 
-    raw_video = TMP / "raw_video.mp4"
-    output    = TMP / "final_short.mp4"
+    output = TMP / "final_short.mp4"
 
-    log.info("  Downloading stock video...")
-    with requests.get(video_url, stream=True, timeout=120) as r:
-        r.raise_for_status()
-        with open(raw_video, "wb") as f:
-            for chunk in r.iter_content(65536):
-                f.write(chunk)
-    log.info(f"  ✓ Downloaded: {raw_video.stat().st_size // (1024*1024)} MB")
+    # Download all video clips
+    clip_paths = []
+    for i, url in enumerate(video_urls):
+        clip_path = TMP / f"clip_{i}.mp4"
+        log.info(f"  Downloading clip {i+1}/{len(video_urls)}...")
+        try:
+            with requests.get(url, stream=True, timeout=60) as r:
+                r.raise_for_status()
+                with open(clip_path, "wb") as f:
+                    for chunk in r.iter_content(65536):
+                        f.write(chunk)
+            clip_paths.append(clip_path)
+        except Exception as e:
+            log.warning(f"  ⚠ Clip {i+1} failed: {e} — skipping")
+
+    if not clip_paths:
+        raise RuntimeError("All video downloads failed")
+
+    log.info(f"  ✓ Downloaded {len(clip_paths)} clips")
+
+    # Write concat list for FFmpeg
+    concat_file = TMP / "concat.txt"
+    with open(concat_file, "w") as f:
+        for p in clip_paths:
+            f.write(f"file '{p}'\n")
+
+    # Merge clips into one raw video
+    raw_video = TMP / "raw_video.mp4"
+    concat_result = subprocess.run(
+        ["ffmpeg", "-y",
+         "-f", "concat",
+         "-safe", "0",
+         "-i", str(concat_file),
+         "-c:v", "libx264",
+         "-preset", "fast",
+         "-crf", "23",
+         "-an",
+         str(raw_video)],
+        capture_output=True, text=True, timeout=120,
+    )
+    if concat_result.returncode != 0:
+        log.warning(f"  ⚠ Concat failed, using first clip only")
+        raw_video = clip_paths[0]
+
+    log.info(f"  ✓ Clips merged")
 
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
@@ -461,9 +500,9 @@ def main():
 
     try:
         script_data          = generate_script(niche)
-        video_url, _         = fetch_pexels_video(niche["pexels_query"])
+        video_urls           = fetch_pexels_videos(niche["pexels_query"], count=4)
         audio_path           = generate_voiceover(script_data["script"])
-        final_video          = assemble_short(video_url, audio_path, script_data["title"], script_data["script"])
+        final_video          = assemble_short(video_urls, audio_path, script_data["title"], script_data["script"])
         video_id, yt_url     = upload_to_youtube(
             final_video,
             script_data["title"],
