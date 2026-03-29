@@ -26,6 +26,7 @@ PEXELS_API_KEY        = os.environ["PEXELS_API_KEY"]
 YOUTUBE_CLIENT_ID     = os.environ["YOUTUBE_CLIENT_ID"]
 YOUTUBE_CLIENT_SECRET = os.environ["YOUTUBE_CLIENT_SECRET"]
 YOUTUBE_REFRESH_TOKEN = os.environ["YOUTUBE_REFRESH_TOKEN"]
+PIXABAY_API_KEY = os.environ["PIXABAY_API_KEY"]
 
 TMP = Path(tempfile.gettempdir())
 
@@ -128,7 +129,97 @@ Return ONLY a raw JSON object with no markdown no code blocks no extra text:
     log.info(f"  ✓ Script words: {len(data['script'].split())}")
     return data
 
+# middle step to add background music, I kind of forgot this in the original code
+def fetch_background_music(niche_topic: str) -> Path:
+    log.info("[2.5/5] Fetching background music  →  Pixabay")
 
+    # Map niches to music moods for better matching
+    mood_map = {
+        "psychology":    "ambient",
+        "money":         "corporate",
+        "investing":     "corporate",
+        "science":       "electronic",
+        "history":       "epic",
+        "ai":            "electronic",
+        "technology":    "electronic",
+        "productivity":  "upbeat",
+        "health":        "ambient",
+        "space":         "cinematic",
+        "animals":       "acoustic",
+        "cooking":       "upbeat",
+        "philosophy":    "ambient",
+        "geography":     "cinematic",
+    }
+
+    # Pick mood based on niche topic keywords
+    mood = "ambient"
+    for keyword, m in mood_map.items():
+        if keyword in niche_topic.lower():
+            mood = m
+            break
+
+    log.info(f"  Music mood: {mood}")
+
+    resp = requests.get(
+        "https://pixabay.com/api/videos/",
+        params={
+            "key": PIXABAY_API_KEY,
+            "q": mood,
+            "media_type": "music",
+            "per_page": 20,
+            "safesearch": "true",
+        },
+        timeout=15,
+    )
+
+    # Pixabay music endpoint
+    music_resp = requests.get(
+        "https://pixabay.com/api/",
+        params={
+            "key": PIXABAY_API_KEY,
+            "q": mood + " background music",
+            "media_type": "music",
+            "per_page": 20,
+            "safesearch": "true",
+            "order": "popular",
+        },
+        timeout=15,
+    )
+
+    music_url = None
+
+    if music_resp.ok:
+        hits = music_resp.json().get("hits", [])
+        music_hits = [h for h in hits if h.get("type") == "music" or "audio" in str(h.get("pageURL", ""))]
+        if music_hits:
+            pick = random.choice(music_hits[:10])
+            music_url = pick.get("audio", {}).get("url") or pick.get("audioURL")
+
+    # Fallback: curated list of free royalty-free music URLs
+    if not music_url:
+        log.info("  Pixabay returned no music — using curated fallback track")
+        fallback_tracks = [
+            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3",
+            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3",
+            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3",
+            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-6.mp3",
+            "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-8.mp3",
+        ]
+        music_url = random.choice(fallback_tracks)
+
+    # Download the music file
+    music_path = TMP / "background_music.mp3"
+    log.info(f"  Downloading music...")
+    with requests.get(music_url, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(music_path, "wb") as f:
+            for chunk in r.iter_content(65536):
+                f.write(chunk)
+
+    size_kb = music_path.stat().st_size // 1024
+    log.info(f"  ✓ Music downloaded ({size_kb} KB)")
+    return music_path
 # ══════════════════════════════════════════════════════════════════════════════
 # STEP 2 ── Fetch portrait stock video from Pexels (free, no watermark)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -203,7 +294,7 @@ def generate_voiceover(script: str) -> Path:
 # STEP 4 ── Download stock video + assemble Short with FFmpeg
 #           Output: 1080×1920, 30fps, H.264 + AAC — perfect for YouTube Shorts
 # ══════════════════════════════════════════════════════════════════════════════
-def assemble_short(video_urls: list, audio_path: Path, title: str, script: str = "") -> Path:
+def assemble_short(video_urls: list, audio_path: Path, title: str, script: str = "", music_path: Path = None) -> Path:
     log.info("[4/5] Assembling Short  →  downloading video + FFmpeg + subtitles")
 
     output = TMP / "final_short.mp4"
@@ -336,19 +427,44 @@ def assemble_short(video_urls: list, audio_path: Path, title: str, script: str =
     vf = base_vf + ("," + subtitle_filter if subtitle_filter else "")
 
     log.info("  Running FFmpeg with subtitles...")
+    # Build FFmpeg command — mix voiceover + background music
+    ffmpeg_cmd = [
+        "ffmpeg", "-y",
+        "-stream_loop", "-1", "-i", str(raw_video),
+        "-i", str(audio_path),
+    ]
+
+    if music_path and music_path.exists():
+        ffmpeg_cmd += ["-stream_loop", "-1", "-i", str(music_path)]
+        # 3 inputs: video, voiceover, music
+        # Mix voiceover at full volume, music at 15% volume
+        audio_filter = "[1:a]volume=1.0[voice];[2:a]volume=0.15[music];[voice][music]amix=inputs=2:duration=first[aout]"
+        ffmpeg_cmd += [
+            "-vf", vf,
+            "-filter_complex", audio_filter,
+            "-map", "0:v",
+            "-map", "[aout]",
+        ]
+    else:
+        # No music — just voiceover
+        ffmpeg_cmd += [
+            "-vf", vf,
+            "-map", "0:v",
+            "-map", "1:a",
+        ]
+
+    ffmpeg_cmd += [
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
+        "-t", str(duration),
+        "-shortest",
+        "-movflags", "+faststart",
+        "-pix_fmt", "yuv420p",
+        str(output),
+    ]
+
     result = subprocess.run(
-        ["ffmpeg", "-y",
-         "-stream_loop", "-1",
-         "-i", str(raw_video),
-         "-i", str(audio_path),
-         "-vf", vf,
-         "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-         "-c:a", "aac", "-b:a", "128k",
-         "-t", str(duration),
-         "-shortest",
-         "-movflags", "+faststart",
-         "-pix_fmt", "yuv420p",
-         str(output)],
+        ffmpeg_cmd,
         capture_output=True, text=True, timeout=300,
     )
 
@@ -501,8 +617,9 @@ def main():
     try:
         script_data          = generate_script(niche)
         video_urls           = fetch_pexels_videos(niche["pexels_query"], count=4)
+        music_path           = fetch_background_music(niche["topic"])
         audio_path           = generate_voiceover(script_data["script"])
-        final_video          = assemble_short(video_urls, audio_path, script_data["title"], script_data["script"])
+        final_video          = assemble_short(video_urls, audio_path, script_data["title"], script_data["script"], music_path)
         video_id, yt_url     = upload_to_youtube(
             final_video,
             script_data["title"],
@@ -514,7 +631,7 @@ def main():
         log_result(today, script_data["title"], niche["topic"], video_id, yt_url, "SUCCESS")
 
         # Cleanup /tmp
-        for p in [audio_path, TMP/"raw_video.mp4", final_video, TMP/"script.txt"]:
+        for p in [audio_path, TMP/"raw_video.mp4", final_video, TMP/"script.txt", TMP/"background_music.mp3", TMP/"concat.txt"]:
             try: Path(p).unlink(missing_ok=True)
             except: pass
 
