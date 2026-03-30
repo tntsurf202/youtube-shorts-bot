@@ -2,10 +2,11 @@ name: 🎬 YouTube Shorts Daily Upload
 
 on:
   # Run every day at 12:00 UTC (5:30pm IST)
+on:
   schedule:
+    - cron: "0 11 * * *"
     - cron: "0 12 * * *"
-
-  # Also lets you trigger manually from GitHub UI (Actions tab → Run workflow)
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 jobs:
@@ -15,7 +16,11 @@ jobs:
     timeout-minutes: 20      # Safety cap — whole pipeline takes ~5-8 min
 
     steps:
-      # ── 1. Checkout repo ───────────────────────────────────────────────────
+      - name: ⏭ Check if already ran today
+        id: check
+        run: |
+          echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
+
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
