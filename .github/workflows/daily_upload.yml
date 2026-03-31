@@ -1,8 +1,6 @@
 name: 🎬 YouTube Shorts Daily Upload
 
 on:
-  # Run every day at 12:00 UTC (5:30pm IST)
-on:
   schedule:
     - cron: "0 11 * * *"
     - cron: "0 12 * * *"
