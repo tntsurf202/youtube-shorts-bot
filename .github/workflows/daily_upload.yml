@@ -2,59 +2,51 @@ name: 🎬 YouTube Shorts Daily Upload
 
 on:
   schedule:
-    - cron: "0 11 * * *"
     - cron: "0 12 * * *"
-    - cron: "0 13 * * *"
   workflow_dispatch:
+
+concurrency:
+  group: youtube-upload-${{ github.event.schedule || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   upload-short:
     name: Generate & Upload YouTube Short
-    runs-on: ubuntu-latest   # Free, unlimited on public repos
-    timeout-minutes: 20      # Safety cap — whole pipeline takes ~5-8 min
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: ⏭ Check if already ran today
-        id: check
-        run: |
-          echo "date=$(date -u '+%Y-%m-%d')" >> $GITHUB_OUTPUT
-
       - name: 📥 Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Install FFmpeg ──────────────────────────────────────────────────
       - name: 🎞️ Install FFmpeg
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
           ffmpeg -version | head -1
 
-      # ── 3. Set up Python ───────────────────────────────────────────────────
       - name: 🐍 Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
 
-      # ── 4. Install Python dependencies ────────────────────────────────────
       - name: 📦 Install dependencies
         run: pip install -r requirements.txt
 
-      # ── 5. Run the pipeline ────────────────────────────────────────────────
       - name: 🚀 Run YouTube Shorts pipeline
         env:
           GEMINI_API_KEY:        ${{ secrets.GEMINI_API_KEY }}
           GROQ_API_KEY:          ${{ secrets.GROQ_API_KEY }}
-          PIXABAY_API_KEY:       ${{ secrets.PIXABAY_API_KEY }}
           PEXELS_API_KEY:        ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_CLIENT_ID:     ${{ secrets.YOUTUBE_CLIENT_ID }}
           YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
           YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+          PIXABAY_API_KEY:       ${{ secrets.PIXABAY_API_KEY }}
         run: python main.py
 
-      # ── 6. Upload log as artifact (viewable in Actions tab) ────────────────
       - name: 📊 Upload run log
-        if: always()   # upload even if the job failed
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: upload-log-${{ github.run_id }}
