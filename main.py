@@ -483,7 +483,9 @@ def _get_access_token() -> str:
         },
         timeout=15,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        log.error(f"Token error response: {resp.text}")
+        resp.raise_for_status()
     token = resp.json().get("access_token")
     if not token:
         raise RuntimeError(f"Token refresh failed: {resp.text}")
